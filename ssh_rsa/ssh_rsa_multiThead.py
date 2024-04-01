@@ -5,32 +5,38 @@ import sys
 import os
 import pwd
 # 函数 cryptography 创建rsa密钥
-def create_rsa_key(comment):
-    key = cryptography.hazmat.primitives.asymmetric.rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048
-    )
-    # 将私玥转换为openssh格式
-    private_key = key.private_bytes(
-        cryptography.hazmat.primitives.serialization.Encoding.PEM,
-        cryptography.hazmat.primitives.serialization.PrivateFormat.OpenSSH,
-        cryptography.hazmat.primitives.serialization.NoEncryption()
-    )
+def create_rsa_key(comment, choise, home):
+    if choise.lower() == 'y':
+        print("正在创建rsa密钥")
+        key = cryptography.hazmat.primitives.asymmetric.rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048
+        )
+        # 将私玥转换为openssh格式
+        private_key = key.private_bytes(
+            cryptography.hazmat.primitives.serialization.Encoding.PEM,
+            cryptography.hazmat.primitives.serialization.PrivateFormat.OpenSSH,
+            cryptography.hazmat.primitives.serialization.NoEncryption()
+        )
 
-    # 将私玥写入文件
-    with open("/root/.ssh/id_rsa", "w") as f:
-        f.write(private_key.decode())
+        # 将私玥写入文件
+        with open(home + "/.ssh/id_rsa", "w") as f:
+            f.write(private_key.decode())
 
-    # print(private_key.decode())
-    # 将公钥转换为openssh格式
-    public_key = key.public_key().public_bytes(
-        cryptography.hazmat.primitives.serialization.Encoding.OpenSSH,
-        cryptography.hazmat.primitives.serialization.PublicFormat.OpenSSH
-    )
+        # print(private_key.decode())
+        # 将公钥转换为openssh格式
+        public_key = key.public_key().public_bytes(
+            cryptography.hazmat.primitives.serialization.Encoding.OpenSSH,
+            cryptography.hazmat.primitives.serialization.PublicFormat.OpenSSH
+        )
 
-    # 将公钥写入文件
-    with open("/root/.ssh/id_rsa.pub", "w") as f:
-        f.write(public_key.decode() + " " + comment)
+        # 将公钥写入文件
+        with open(home + "/.ssh/id_rsa.pub", "w") as f:
+            f.write(public_key.decode() + " " + comment)
+        print("创建成功")
+    else:
+        with open(home + "/.ssh/id_rsa.pub", "r") as f:
+            public_key = f.read().strip().encode()
 
     return public_key.decode() + " " + comment
 
@@ -83,22 +89,24 @@ class multiThread(threading.Thread):
 
 if __name__ == '__main__':
     # usesage : 通过命令行传入线程数，python ssh_rsa.py 10
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         print("请传入线程数")
-        print("Usage: python3 ssh_rsa.py 线程数")
+        print("Usage: python3 ssh_rsa.py 线程数 是否重新生成openssh密钥（y/n）")
         exit()
     thread_num = int(sys.argv[1])
     # 获取主机名, hostname
     loginName = pwd.getpwuid(os.getuid())[0]
     hostname = os.uname().nodename
     comment = loginName + "@" + hostname
-    public_key = create_rsa_key(comment=comment)
+    home = os.path.expanduser('~')
+    print(home)
+    public_key = create_rsa_key(comment=comment, choise=sys.argv[2], home=home)
 
     hosts_result = []
 
     with open("ssh_rsa/hosts", "r") as f:
         hosts = f.readlines()
-        hosts = [ str(host).split(" ") for host in hosts]
+        hosts = [ str(host).strip().split() for host in hosts]
         for host in hosts:
             hostname, username, password = host[0], host[1], host[2]
             port = 22
@@ -107,7 +115,7 @@ if __name__ == '__main__':
 
     # 根据线程数分配每个线程所处理的主机数
     sub_hosts_result = [hosts_result[i*len(hosts_result)//thread_num: (i+1)*len(hosts_result)//thread_num] for i in range(thread_num)]
-    # print(sub_hosts_result)
+    print(sub_hosts_result)
     threads = []
     for host in sub_hosts_result:
         t = multiThread(hosts=host, public_key=public_key)
