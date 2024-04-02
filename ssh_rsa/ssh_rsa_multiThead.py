@@ -4,6 +4,10 @@ import threading
 import sys
 import os
 import pwd
+import time
+
+## 写入日志的锁
+lock = threading.Lock()
 # 函数 cryptography 创建rsa密钥
 def create_rsa_key(comment, choise, home):
     if choise.lower() == 'y':
@@ -48,7 +52,12 @@ def ssh_connect(hostname ,port, username, password):
         ssh.connect(hostname=hostname, port=port, username=username, password=password)
         return ssh
     except Exception as e:
-        print("连接失败:", e)
+        lock.acquire()
+        with open('ssh_rsa/error.log', 'a') as f:
+            cur_time = '[' + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()) + '] '
+            f.write(cur_time + "连接失败:"+ hostname + ":" + str(e) + "\n")
+        lock.release()
+        # print("连接失败:", e)
 
 # 多线程执行任务的类
 
@@ -60,8 +69,8 @@ class multiThread(threading.Thread):
         self.ssh = ssh_connect(hostname=hostname, port=port, username=username, password=password) 
 
     def run(self):
-        try:
-            for host in self.hosts:
+        for host in self.hosts:
+            try:
                 hostname = host['hostname']
                 port = host['port']
                 username = host['username']
@@ -79,12 +88,20 @@ class multiThread(threading.Thread):
 
                 if stderr.read().decode():
                     print("返回的错误信息：",stderr.read().decode())
-
+                    lock.acquire()
+                    with open("ssh_rsa/error.log", "a") as f:
+                        f.write('[' + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()) + '] ' + hostname + ":" + stderr.read().decode() + "\n")
+                    lock.release()
                 ssh.close()
                 
                 print(hostname ,":执行成功!!!","\n")
-        except Exception as e:
-            print(hostname ,":执行失败!!!","\n")
+            except Exception as e:
+                lock.acquire()
+                with open("ssh_rsa/error.log", "a") as f:
+                    cur_time = '[' + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()) + '] '
+                    f.write(cur_time + hostname + ":" + str(e) + "\n" + cur_time + hostname + ":执行失败!!!" + "\n")
+                lock.release()
+                print(hostname ,":执行失败!!!","\n")
          
 
 if __name__ == '__main__':
@@ -99,7 +116,7 @@ if __name__ == '__main__':
     hostname = os.uname().nodename
     comment = loginName + "@" + hostname
     home = os.path.expanduser('~')
-    print(home)
+    print("执行该脚本的用户为:", loginName, "\n该用户的home目录为:", home, "\n")
     public_key = create_rsa_key(comment=comment, choise=sys.argv[2], home=home)
 
     hosts_result = []
@@ -115,7 +132,7 @@ if __name__ == '__main__':
 
     # 根据线程数分配每个线程所处理的主机数
     sub_hosts_result = [hosts_result[i*len(hosts_result)//thread_num: (i+1)*len(hosts_result)//thread_num] for i in range(thread_num)]
-    print(sub_hosts_result)
+    # print(sub_hosts_result)
     threads = []
     for host in sub_hosts_result:
         t = multiThread(hosts=host, public_key=public_key)
@@ -125,5 +142,6 @@ if __name__ == '__main__':
         threads[i].start()
         threads[i].join()
 
-    print("执行完毕")    
+    print("执行完毕")  
+    print("错误详细日志保存在ssh_rsa/error.log")  
     
